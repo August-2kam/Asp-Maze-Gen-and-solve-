@@ -7,12 +7,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PANEL_WIDTH       360
-#define WINDOW_MARGIN     20
-#define CONTENT_GAP       18
-#define TOP_BAR_HEIGHT    22
-#define FOOTER_HEIGHT     150
-#define LEFT_MIN_WIDTH    540
+#define PANEL_WIDTH          360
+#define WINDOW_MARGIN        20
+#define CONTENT_GAP          18
+#define TOP_BAR_HEIGHT       22
+#define FOOTER_HEIGHT        180
+#define LEFT_MIN_WIDTH       480
+#define MIN_CELL_SIZE        3
+#define MAX_CELL_SIZE        34
+#define MAZE_CARD_PAD        10
+#define FOOTER_MIN_HEIGHT    156
+
+// footer layout constants
+#define FOOTER_STATUS_H      28
+#define FOOTER_BTN_H         40
+#define FOOTER_BTN_W         128
+#define FOOTER_BTN_GAP       14
+#define FOOTER_HINT_H        20
+#define FOOTER_PAD           10
 
 typedef struct
 {
@@ -24,7 +36,6 @@ typedef struct
 typedef enum
 {
     INFO_NONE,
-    INFO_PARENTS,
     INFO_EDGES,
     INFO_SOLVER
 } InfoType;
@@ -59,13 +70,26 @@ typedef struct
     int leftPaneW;
 } Layout;
 
+typedef struct
+{
+    int statusY;
+    int div1Y;
+    int btnRowY;
+    int btnStartX;
+    int btnW;
+    int btnH;
+    int btnGap;
+    int div2Y;
+    int hintY;
+} FooterMetrics;
 
-//Augustine Mochoeneng 
-//GMTK game jam code - 2021 
+
+//Augustine Mochoeneng
+//GMTK game jam code - 2021
 
 
 //clamp an integer to be in the interval [lb,ub]
-static inline 
+static inline
 int clampi(int x, int lb, int ub)
 {
     if (x < lb) return lb;
@@ -74,7 +98,7 @@ int clampi(int x, int lb, int ub)
 }
 
 //2D coordinates to 1D index
-static inline 
+static inline
 int getIndexFromRowCol(int rows, int cols, int r, int c)
 {
     (void)rows;
@@ -83,7 +107,7 @@ int getIndexFromRowCol(int rows, int cols, int r, int c)
 
 
 //Check if a point is located inside the rectangle r,
-static inline bool 
+static inline bool
 pointInRect(int x, int y, SDL_Rect r)
 {
     return x >= r.x && x < r.x + r.w &&
@@ -91,14 +115,14 @@ pointInRect(int x, int y, SDL_Rect r)
 }
 
 //Embed seperate r, g ,b values to one 4byte int
-static inline uint32_t 
+static inline uint32_t
 rgb(uint8_t r, uint8_t g, uint8_t b)
 {
     return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
 }
 
-//A wrapper function to change the rederer draw color 
-static void 
+//A wrapper function to change the rederer draw color
+static void
 setColor(SDL_Renderer *ren, uint32_t color)
 {
     SDL_SetRenderDrawColor(
@@ -110,8 +134,8 @@ setColor(SDL_Renderer *ren, uint32_t color)
     );
 }
 
-//A wrapper function to draw a filled rectangle 
-static void 
+//A wrapper function to draw a filled rectangle
+static void
 fillRect(SDL_Renderer *ren, SDL_Rect r, uint32_t color)
 {
     setColor(ren, color);
@@ -119,7 +143,7 @@ fillRect(SDL_Renderer *ren, SDL_Rect r, uint32_t color)
 }
 
 //A wrapper function to draw an unfilled rectangle
-static void 
+static void
 strokeRect(SDL_Renderer *ren, SDL_Rect r, uint32_t color)
 {
     setColor(ren, color);
@@ -128,7 +152,7 @@ strokeRect(SDL_Renderer *ren, SDL_Rect r, uint32_t color)
 
 
 
-//Simpl text rendering lib  in SDL 
+//Simpl text rendering lib  in SDL
 //Augustine Mochoeneng
 //07 June 2022
 
@@ -188,31 +212,31 @@ static const Glyph GLYPHS[] = {
 };
 
 
-//search the glphs array to find a corrosponding bitmap for a char 
+//search the glphs array to find a corrosponding bitmap for a char
 //optimize if we add more characters
 static const Glyph*
 findGlyph(char ch)
 {
     size_t n = sizeof(GLYPHS) / sizeof(GLYPHS[0]);
-    for (size_t i = 0; i < n; i++) 
+    for (size_t i = 0; i < n; i++)
         if (GLYPHS[i].ch == ch) return &GLYPHS[i];
 
     return &GLYPHS[n - 1];
 }
 
 //draw a char on to the display. (x,y) top left cordinates
-static void 
-drawChar(SDL_Renderer *ren, int x, int y, 
+static void
+drawChar(SDL_Renderer *ren, int x, int y,
                                    int scale,
-                                   char ch, 
+                                   char ch,
                                    uint32_t color)
 {
     const Glyph *g = findGlyph(ch);
     setColor(ren, color);
 
-    for (int r = 0; r < 7; r++) 
+    for (int r = 0; r < 7; r++)
     {
-        for (int c = 0; c < 5; c++) 
+        for (int c = 0; c < 5; c++)
         {
             if (g->rows[r][c] == '1') {
                 SDL_Rect px = {x + c * scale, y + r * scale, scale, scale};
@@ -224,25 +248,26 @@ drawChar(SDL_Renderer *ren, int x, int y,
 
 
 //Draw a null terminated string into the display , call the drawChar func above
-static void 
-drawText(SDL_Renderer *ren, int x, int y, 
-                                   int scale, 
-                                   const char *text, 
+static void
+drawText(SDL_Renderer *ren, int x, int y,
+                                   int scale,
+                                   const char *text,
                                    uint32_t color)
 {
-    for (int i = 0; text[i] != '\0'; i++) 
+    for (int i = 0; text[i] != '\0'; i++)
         drawChar(ren, x + i * 6 * scale, y, scale, text[i], color);
-    
+
 }
 
 
-//determine the width of the text ...estimate really 
-static int 
+//determine the width of the text ...estimate really
+static int
 textWidth(const char *text, int scale)
 {
     return (int)strlen(text) * 6 * scale;   // 6 -> bitmap is (7 by 5)
 }
-static int 
+
+static int
 getInfoTextScale(const AppState *app)
 {
     if (!app) return 2;
@@ -253,7 +278,7 @@ getInfoTextScale(const AppState *app)
     return 2;
 }
 
-static int 
+static int
 getInfoWrapChars(const AppState *app)
 {
     int scale = getInfoTextScale(app);
@@ -266,15 +291,15 @@ getInfoWrapChars(const AppState *app)
     return cols;
 }
 
-//turn lower case chars into upper and any chars that are not supported 
+//turn lower case chars into upper and any chars that are not supported
 //yet are replaced by " "
-static void 
+static void
 sanitizeFontText(char *dst, size_t dstSize, const char *src)
 {
     if (!dst || dstSize == 0) return;
 
     size_t i = 0;
-    for (; src[i] != '\0' && i + 1 < dstSize; i++) 
+    for (; src[i] != '\0' && i + 1 < dstSize; i++)
     {
         unsigned char ch = (unsigned char)src[i];
 
@@ -288,18 +313,18 @@ sanitizeFontText(char *dst, size_t dstSize, const char *src)
             ch == '.' || ch == ':'   || ch == '+' ||
             ch == '_'
            ) dst[i] = (char)ch;
-        else 
+        else
             dst[i] = ' ';
-    
+
     }
     dst[i] = '\0';
 }
 
 //A wrapper function for the drawing text to screen
-static void 
-drawTextSafe(SDL_Renderer *ren, int x, int y, 
-                                       int scale, 
-                                       const char *text, 
+static void
+drawTextSafe(SDL_Renderer *ren, int x, int y,
+                                       int scale,
+                                       const char *text,
                                        uint32_t color)
 {
     char buf[1024];
@@ -316,11 +341,11 @@ static void freeInfoLines(AppState *app)
 {
     if (!app) return;
 
-    if (app->infoLines) 
+    if (app->infoLines)
     {
-        for (int i = 0; i < app->infoLineCount; i++) 
+        for (int i = 0; i < app->infoLineCount; i++)
             free(app->infoLines[i]);
-        
+
         free(app->infoLines);
     }
 
@@ -329,14 +354,14 @@ static void freeInfoLines(AppState *app)
     app->infoScrollOffset = 0;
 }
 
-static void 
+static void
 clearInfoPanel(AppState *app)
 {
     freeInfoLines(app);
     app->infoType = INFO_NONE;
 }
 
-static void 
+static void
 pushInfoLine(AppState *app, const char *s)
 {
     if (!app || !s) return;
@@ -350,12 +375,13 @@ pushInfoLine(AppState *app, const char *s)
         app->infoLineCount++;
     }
 }
-static void 
+
+static void
 pushWrappedInfoLine(AppState *app, const char *s, int maxChars)
 {
     if (!app || !s) return;
 
-    if (maxChars < 8 || (int)strlen(s) <= maxChars) 
+    if (maxChars < 8 || (int)strlen(s) <= maxChars)
     {
         pushInfoLine(app, s);
         return;
@@ -395,8 +421,8 @@ pushWrappedInfoLine(AppState *app, const char *s, int maxChars)
     }
 }
 
-//window title- does not work on other window managers  
-static void 
+//window title- does not work on other window managers
+static void
 updateTitle(SDL_Window *window, const AppState *app)
 {
     char buf[128];
@@ -412,9 +438,75 @@ updateTitle(SDL_Window *window, const AppState *app)
     SDL_SetWindowTitle(window, buf);
 }
 
+static FooterMetrics
+computeFooterMetrics(const Layout *L)
+{
+    FooterMetrics M;
+    memset(&M, 0, sizeof(M));
+
+    int innerW = L->footerPanel.w - FOOTER_PAD * 2;
+
+    M.statusY = L->footerPanel.y + FOOTER_PAD + 2;
+    M.div1Y   = M.statusY + FOOTER_STATUS_H + FOOTER_PAD;
+
+    M.btnGap = FOOTER_BTN_GAP;
+    M.btnW   = FOOTER_BTN_W;
+    M.btnH   = FOOTER_BTN_H;
+
+    if (5 * M.btnW + 4 * M.btnGap > innerW)
+    {
+        M.btnGap = 8;
+        M.btnW = (innerW - 4 * M.btnGap) / 5;
+
+        if (M.btnW < 76)
+            M.btnW = 76;
+
+        if (M.btnW < 96)
+            M.btnH = 36;
+    }
+
+    {
+        int totalW = 5 * M.btnW + 4 * M.btnGap;
+        M.btnStartX = L->footerPanel.x + (L->footerPanel.w - totalW) / 2;
+        if (M.btnStartX < L->footerPanel.x + FOOTER_PAD)
+            M.btnStartX = L->footerPanel.x + FOOTER_PAD;
+    }
+
+    M.btnRowY = M.div1Y + FOOTER_PAD + 4;
+    M.div2Y   = M.btnRowY + M.btnH + FOOTER_PAD + 4;
+    M.hintY   = M.div2Y + FOOTER_PAD;
+
+    return M;
+}
+
+static int
+getButtonTextScale(const Button *btn, const char *label)
+{
+    if (!btn || !label) return 2;
+
+    if (textWidth(label, 2) + 18 <= btn->rect.w)
+        return 2;
+
+    return 1;
+}
+
+static int
+getInfoVisibleLines(const AppState *app, const Layout *L)
+{
+    int textScale = getInfoTextScale(app);
+    int lineStep = (textScale == 1) ? 12 : 18;
+    int usableH = L->infoPanel.h - 86;
+    int maxLines = usableH / lineStep;
+
+    if (maxLines < 1)
+        maxLines = 1;
+
+    return maxLines;
+}
+
 
 //web dev math
-static Layout 
+static Layout
 computeLayout(const AppState *app)
 {
     Layout L;
@@ -427,22 +519,26 @@ computeLayout(const AppState *app)
     int mazePixelW = app->cols * app->cellSize;
     int mazePixelH = app->rows * app->cellSize;
 
-    int cardPad = 10;
-    int mazeCardW = mazePixelW + cardPad * 2;
-    int mazeCardH = mazePixelH + cardPad * 2;
+    int mazeCardW = mazePixelW + MAZE_CARD_PAD * 2;
+    int mazeCardH = mazePixelH + MAZE_CARD_PAD * 2;
 
-    int mazeCardX = (L.leftPaneW - mazeCardW) / 2;
+    int leftInnerX = WINDOW_MARGIN;
+    int leftInnerW = L.leftPaneW - WINDOW_MARGIN * 2;
+
+    int mazeCardX = leftInnerX + (leftInnerW - mazeCardW) / 2;
     if (mazeCardX < WINDOW_MARGIN)
         mazeCardX = WINDOW_MARGIN;
 
     int mazeCardY = WINDOW_MARGIN;
 
     L.mazeCard = (SDL_Rect){mazeCardX, mazeCardY, mazeCardW, mazeCardH};
-    L.mazeArea = (SDL_Rect){mazeCardX + cardPad, mazeCardY + cardPad, mazePixelW, mazePixelH};
+    L.mazeArea = (SDL_Rect){mazeCardX + MAZE_CARD_PAD, mazeCardY + MAZE_CARD_PAD, mazePixelW, mazePixelH};
 
-    int footerY = L.mazeCard.y + L.mazeCard.h + 16;
+    int footerY = L.mazeCard.y + L.mazeCard.h + 12;
     int footerH = app->winH - footerY - WINDOW_MARGIN;
-    if (footerH < 120) footerH = 120;
+
+    if (footerH < FOOTER_MIN_HEIGHT)
+        footerH = FOOTER_MIN_HEIGHT;
 
     L.footerPanel = (SDL_Rect){
         WINDOW_MARGIN,
@@ -452,7 +548,7 @@ computeLayout(const AppState *app)
     };
 
     L.infoPanel = (SDL_Rect){
-        app->winW - PANEL_WIDTH,
+        L.leftPaneW + CONTENT_GAP,
         WINDOW_MARGIN,
         PANEL_WIDTH - WINDOW_MARGIN,
         app->winH - WINDOW_MARGIN * 2
@@ -462,20 +558,39 @@ computeLayout(const AppState *app)
 }
 
 
-//draw buttons 
+//draw buttons
 //TOD0: make press and hover colors global
-static void 
+static void
 drawButton(SDL_Renderer *ren, Button *btn, const char *label)
 {
     uint32_t fill =
-        btn->pressed ? rgb(88, 110, 160) :
-        btn->hovered ? rgb(104, 124, 170) :
-                       rgb(74, 84, 108);
+        btn->pressed ? rgb(70, 92, 138) :
+        btn->hovered ? rgb(84, 104, 148) :
+                       rgb(56, 68, 94);
+
+    uint32_t top =
+        btn->pressed ? rgb(54, 74, 112) :
+        btn->hovered ? rgb(96, 118, 164) :
+                       rgb(70, 84, 112);
+
+    uint32_t edge =
+        btn->pressed ? rgb(184, 198, 220) :
+                       rgb(212, 218, 228);
 
     fillRect(ren, btn->rect, fill);
-    strokeRect(ren, btn->rect, rgb(220, 224, 230));
 
-    int scale = 2;
+    SDL_Rect gloss = {
+        btn->rect.x + 1,
+        btn->rect.y + 1,
+        btn->rect.w - 2,
+        btn->rect.h / 2 - 1
+    };
+    if (gloss.w > 0 && gloss.h > 0)
+        fillRect(ren, gloss, top);
+
+    strokeRect(ren, btn->rect, edge);
+
+    int scale = getButtonTextScale(btn, label);
     int tw = textWidth(label, scale);
     int tx = btn->rect.x + (btn->rect.w - tw) / 2;
     int ty = btn->rect.y + (btn->rect.h - 7 * scale) / 2;
@@ -483,7 +598,7 @@ drawButton(SDL_Renderer *ren, Button *btn, const char *label)
 }
 
 
-static void 
+static void
 drawCellWalls(SDL_Renderer *ren, int x, int y, int cellSize, uint8_t walls)
 {
     setColor(ren, rgb(236, 239, 244));
@@ -495,11 +610,11 @@ drawCellWalls(SDL_Renderer *ren, int x, int y, int cellSize, uint8_t walls)
 }
 
 
-//get the centeru cordinares  of a cell 
-static void 
-cellIdToCenter(int id1, int cols, SDL_Rect area, 
-                                  int cellSize, 
-                                  int *x, 
+//get the centeru cordinares  of a cell
+static void
+cellIdToCenter(int id1, int cols, SDL_Rect area,
+                                  int cellSize,
+                                  int *x,
                                   int *y)
 {
     int id0 = id1 - 1;
@@ -510,9 +625,31 @@ cellIdToCenter(int id1, int cols, SDL_Rect area,
     *y = area.y + r * cellSize + cellSize / 2;
 }
 
+static void
+drawPathSegment(SDL_Renderer *ren, int x1, int y1, int x2, int y2, int thickness)
+{
+    SDL_RenderDrawLine(ren, x1, y1, x2, y2);
+
+    if (thickness >= 2)
+    {
+        if (y1 == y2)
+            SDL_RenderDrawLine(ren, x1, y1 + 1, x2, y2 + 1);
+        else
+            SDL_RenderDrawLine(ren, x1 + 1, y1, x2 + 1, y2);
+    }
+
+    if (thickness >= 3)
+    {
+        if (y1 == y2)
+            SDL_RenderDrawLine(ren, x1, y1 - 1, x2, y2 - 1);
+        else
+            SDL_RenderDrawLine(ren, x1 - 1, y1, x2 - 1, y2);
+    }
+}
+
 //paths visualization
-//TODO:optimized for larger mazes 
-static void 
+//TODO:optimized for larger mazes
+static void
 drawSolution(SDL_Renderer *ren, const AppState *app, SDL_Rect area)
 {
     // sanity checks
@@ -522,8 +659,8 @@ drawSolution(SDL_Renderer *ren, const AppState *app, SDL_Rect area)
     const PathModel *m = &app->paths->mods[app->current];
     if (!m || m->count <= 0) return;
 
-    // Build adjacency list from the path edges
-    int maxNode = app->rows * app->cols;   // nodes are 1‑based IDs
+    // build adjacency list from the path edges
+    int maxNode = app->rows * app->cols;   // nodes are 1-based IDs
     typedef struct NodeLink { int to; struct NodeLink *next; } NodeLink;
     NodeLink *adj[maxNode + 1];
     for (int i = 1; i <= maxNode; i++) adj[i] = NULL;
@@ -533,27 +670,26 @@ drawSolution(SDL_Renderer *ren, const AppState *app, SDL_Rect area)
         int v = m->edges[i].to;
         // add v to adj[u]
         NodeLink *link = malloc(sizeof(NodeLink));
+        if (!link) continue;
         link->to = v;
         link->next = adj[u];
         adj[u] = link;
         // add u to adj[v]
         link = malloc(sizeof(NodeLink));
+        if (!link) continue;
         link->to = u;
         link->next = adj[v];
         adj[v] = link;
     }
 
-    // Find start (cell 1) and goal (cell maxNode)
     int start = 1;
     int goal = maxNode;
 
-    // Try to find a path from start to goal using DFS
     int visited[maxNode + 1];
     memset(visited, 0, sizeof(visited));
     int parent[maxNode + 1];
     memset(parent, -1, sizeof(parent));
 
-    // iterative DFS stack
     int stack[maxNode + 1];
     int top = 0;
     stack[top++] = start;
@@ -572,6 +708,10 @@ drawSolution(SDL_Renderer *ren, const AppState *app, SDL_Rect area)
         }
     }
 
+    int thickness =
+        app->cellSize >= 18 ? 3 :
+        app->cellSize >= 11 ? 2 : 1;
+
     // If a path exists, draw a continuous polyline
     if (visited[goal]) {
         // reconstruct path from goal to start
@@ -588,8 +728,7 @@ drawSolution(SDL_Renderer *ren, const AppState *app, SDL_Rect area)
             int x1, y1, x2, y2;
             cellIdToCenter(path[i],   app->cols, area, app->cellSize, &x1, &y1);
             cellIdToCenter(path[i-1], app->cols, area, app->cellSize, &x2, &y2);
-            SDL_RenderDrawLine(ren, x1, y1, x2, y2);
-            SDL_RenderDrawLine(ren, x1 + 1, y1, x2 + 1, y2);
+            drawPathSegment(ren, x1, y1, x2, y2, thickness);
         }
     } else {
         // No continuous path found – fall back to drawing individual edges
@@ -598,8 +737,7 @@ drawSolution(SDL_Renderer *ren, const AppState *app, SDL_Rect area)
             int x1, y1, x2, y2;
             cellIdToCenter(m->edges[i].from, app->cols, area, app->cellSize, &x1, &y1);
             cellIdToCenter(m->edges[i].to,   app->cols, area, app->cellSize, &x2, &y2);
-            SDL_RenderDrawLine(ren, x1, y1, x2, y2);
-            SDL_RenderDrawLine(ren, x1 + 1, y1, x2 + 1, y2);
+            drawPathSegment(ren, x1, y1, x2, y2, thickness);
         }
     }
 
@@ -614,34 +752,41 @@ drawSolution(SDL_Renderer *ren, const AppState *app, SDL_Rect area)
     }
 }
 
-//wrapper functions 
-static void 
+//wrapper functions
+static void
 drawMazeCard(SDL_Renderer *ren, SDL_Rect card)
 {
-    fillRect(ren, card, rgb(24, 28, 38));
-    strokeRect(ren, card, rgb(70, 78, 96));
+    fillRect(ren, card, rgb(18, 22, 30));
+    strokeRect(ren, card, rgb(78, 86, 102));
+
+    SDL_Rect inner = {card.x + 4, card.y + 4, card.w - 8, card.h - 8};
+    if (inner.w > 0 && inner.h > 0)
+        strokeRect(ren, inner, rgb(34, 40, 54));
 }
 
 
-static void 
+static void
 drawMaze(SDL_Renderer *ren, const AppState *app, SDL_Rect area)
 {
     if (!app || !app->mazes || app->mazeCount <= 0) return;
 
     //border rect
-    fillRect(ren, area, rgb(22, 24, 34));
+    fillRect(ren, area, rgb(16, 20, 28));
 
-    //outer walls of the maze 
-    setColor(ren, rgb(52, 58, 76));
-    for (int x = area.x; x <= area.x + app->cols * app->cellSize; x += app->cellSize)
-        SDL_RenderDrawLine(ren, x, area.y, x, area.y + app->rows * app->cellSize);
+    //outer walls of the maze
+    if (app->cellSize >= 10)
+    {
+        setColor(ren, rgb(42, 48, 64));
+        for (int x = area.x; x <= area.x + app->cols * app->cellSize; x += app->cellSize)
+            SDL_RenderDrawLine(ren, x, area.y, x, area.y + app->rows * app->cellSize);
 
-    for (int y = area.y; y <= area.y + app->rows * app->cellSize; y += app->cellSize)
-        SDL_RenderDrawLine(ren, area.x, y, area.x + app->cols * app->cellSize, y);
+        for (int y = area.y; y <= area.y + app->rows * app->cellSize; y += app->cellSize)
+            SDL_RenderDrawLine(ren, area.x, y, area.x + app->cols * app->cellSize, y);
+    }
 
-    //individual cells 
+    //individual cells
     uint8_t *maze = app->mazes[app->current];
-    for (int r = 0; r < app->rows; r++) 
+    for (int r = 0; r < app->rows; r++)
     {
         for (int c = 0; c < app->cols; c++)
         {
@@ -652,31 +797,62 @@ drawMaze(SDL_Renderer *ren, const AppState *app, SDL_Rect area)
         }
     }
 
-    //solution if button was pressed 
+    //solution if button was pressed
     drawSolution(ren, app, area);
 
     strokeRect(ren, area, rgb(255, 255, 255));
 
-    SDL_Rect start = {area.x + 5, area.y + 5, app->cellSize - 10, app->cellSize - 10};
-    SDL_Rect goal  = {
-        area.x + (app->cols - 1) * app->cellSize + 5,
-        area.y + (app->rows - 1) * app->cellSize + 5,
-        app->cellSize - 10,
-        app->cellSize - 10
-    };
+    {
+        int markerPad = clampi(app->cellSize / 4, 1, 6);
+        int markerSize = app->cellSize - markerPad * 2;
+        if (markerSize < 1) markerSize = 1;
 
-    fillRect(ren, start, rgb(76, 175, 80));
-    fillRect(ren, goal, rgb(244, 67, 54));
+        SDL_Rect start = {area.x + markerPad, area.y + markerPad, markerSize, markerSize};
+        SDL_Rect goal  = {
+            area.x + (app->cols - 1) * app->cellSize + markerPad,
+            area.y + (app->rows - 1) * app->cellSize + markerPad,
+            markerSize,
+            markerSize
+        };
+
+        fillRect(ren, start, rgb(76, 175, 80));
+        fillRect(ren, goal, rgb(244, 67, 54));
+    }
 }
 
 
-//fraw the footer panel 
-//TODO: TEXT AT THE BOTTOM 
-static void 
+// draw the footer panel
+// layout (top to bottom): dev math
+//   FOOTER_PAD
+//   status row  (FOOTER_STATUS_H px tall)
+//   FOOTER_PAD
+//   thin divider line
+//   FOOTER_PAD
+//   button row  (FOOTER_BTN_H px tall)
+//   FOOTER_PAD
+//   thin divider line
+//   FOOTER_PAD
+//   hint row    (FOOTER_HINT_H px tall)
+//   FOOTER_PAD
+static void
 drawFooterPanel(SDL_Renderer *ren, const AppState *app, const Layout *L)
 {
-    fillRect(ren, L->footerPanel, rgb(20, 24, 32));
-    strokeRect(ren, L->footerPanel, rgb(60, 68, 84));
+    FooterMetrics M = computeFooterMetrics(L);
+
+    fillRect(ren, L->footerPanel, rgb(18, 22, 30));
+    strokeRect(ren, L->footerPanel, rgb(70, 78, 94));
+
+    SDL_Rect accent = {
+        L->footerPanel.x + 1,
+        L->footerPanel.y + 1,
+        L->footerPanel.w - 2,
+        3
+    };
+    fillRect(ren, accent, rgb(74, 142, 182));
+
+    int px = L->footerPanel.x;
+    int pw = L->footerPanel.w;
+
 
     char mazeInfo[64];
     snprintf(mazeInfo, sizeof(mazeInfo), "MAZE %d/%d", app->current + 1, app->mazeCount);
@@ -685,8 +861,7 @@ drawFooterPanel(SDL_Renderer *ren, const AppState *app, const Layout *L)
     snprintf(dimInfo, sizeof(dimInfo), "DIM %dX%d", app->rows, app->cols);
 
     const char *mode = "NONE";
-    if (app->infoType == INFO_PARENTS) mode = "PARENTS";
-    else if (app->infoType == INFO_EDGES) mode = "EDGES";
+    if (app->infoType == INFO_EDGES) mode = "EDGES";
     else if (app->infoType == INFO_SOLVER) mode = "SOLVER";
 
     char modeInfo[64];
@@ -696,83 +871,99 @@ drawFooterPanel(SDL_Renderer *ren, const AppState *app, const Layout *L)
     snprintf(pathInfo, sizeof(pathInfo), "PATH %s",
              (app->showPath && app->showPath[app->current]) ? "ON" : "OFF");
 
-    drawTextSafe(ren, L->footerPanel.x + 12,  L->footerPanel.y + 10, 2, mazeInfo, rgb(236, 239, 244));
-    drawTextSafe(ren, L->footerPanel.x + 130, L->footerPanel.y + 10, 2, dimInfo,  rgb(163, 190, 140));
-    drawTextSafe(ren, L->footerPanel.x + 250, L->footerPanel.y + 10, 2, modeInfo, rgb(136, 192, 208));
-    drawTextSafe(ren, L->footerPanel.x + 420, L->footerPanel.y + 10, 2, pathInfo, rgb(180, 142, 173));
+    const char *tags[4] = {mazeInfo, dimInfo, modeInfo, pathInfo};
+    uint32_t tagFill[4] = {
+        rgb(38, 46, 60),
+        rgb(34, 52, 42),
+        rgb(28, 48, 58),
+        rgb(52, 40, 58)
+    };
+    uint32_t tagTextColor[4] = {
+        rgb(236, 239, 244),
+        rgb(163, 190, 140),
+        rgb(136, 192, 208),
+        rgb(180, 142, 173)
+    };
 
-    if (app->infoType == INFO_SOLVER)
-        drawTextSafe(ren, L->footerPanel.x + 12, L->footerPanel.y + L->footerPanel.h - 48, 1,
-                     "RAW CLINGO OUTPUT  UNPARSED", rgb(163, 190, 140));
-    else if (app->infoType == INFO_EDGES)
-        drawTextSafe(ren, L->footerPanel.x + 12, L->footerPanel.y + L->footerPanel.h - 48, 1,
-                     "GENERATED EDGE VIEW", rgb(136, 192, 208));
-    else if (app->infoType == INFO_PARENTS)
-        drawTextSafe(ren, L->footerPanel.x + 12, L->footerPanel.y + L->footerPanel.h - 48, 1,
-                     "PARENT RELATION VIEW", rgb(235, 203, 139));
+    int tagScale = 2;
+    int tagPadX = 10;
+    int tagPadY = 4;
+    int tagGap = 10;
+    int totalTagW = 0;
 
-    //change the text 
-    drawTextSafe(ren, L->footerPanel.x + 12, L->footerPanel.y + L->footerPanel.h - 28, 1,
-                 "LEFT RIGHT A D MOVE  S TOGGLE PATH  1 PARENTS  2 EDGES  3 SOLVER  MOUSEWHEEL SCROLL", 
-                 rgb(210, 216, 224));
+    for (int i = 0; i < 4; i++)
+    {
+        totalTagW += textWidth(tags[i], tagScale) + tagPadX * 2;
+        if (i < 3) totalTagW += tagGap;
+    }
+
+    if (totalTagW > pw - 24)
+    {
+        tagScale = 1;
+        tagPadX = 8;
+        tagPadY = 5;
+        tagGap = 8;
+        totalTagW = 0;
+
+        for (int i = 0; i < 4; i++)
+        {
+            totalTagW += textWidth(tags[i], tagScale) + tagPadX * 2;
+            if (i < 3) totalTagW += tagGap;
+        }
+    }
+
+    int chipH = 7 * tagScale + tagPadY * 2;
+    int chipY = M.statusY + (FOOTER_STATUS_H - chipH) / 2;
+    int tagX = px + (pw - totalTagW) / 2;
+
+    if (tagX < px + 8)
+        tagX = px + 8;
+
+    for (int i = 0; i < 4; i++)
+    {
+        int chipW = textWidth(tags[i], tagScale) + tagPadX * 2;
+        SDL_Rect chip = {tagX, chipY, chipW, chipH};
+
+        fillRect(ren, chip, tagFill[i]);
+        strokeRect(ren, chip, rgb(82, 90, 108));
+        drawTextSafe(ren, chip.x + tagPadX, chip.y + tagPadY, tagScale,
+                     tags[i], tagTextColor[i]);
+
+        tagX += chipW + tagGap;
+    }
+
+    setColor(ren, rgb(46, 54, 70));
+    SDL_RenderDrawLine(ren, px + 8, M.div1Y, px + pw - 8, M.div1Y);
+    SDL_RenderDrawLine(ren, px + 8, M.div2Y, px + pw - 8, M.div2Y);
+
+    // --- hint row ---
+    drawTextSafe(ren, px + 12, M.hintY, 1,
+                 "L/R A/D MOVE  S TOGGLE PATH  2 EDGES  3 SOLVER  WHEEL",
+                 rgb(206, 212, 220));
 }
 
 //web dev math
-//TODO: REFACTOPR THIS FUNCTION, 
-static void 
+//TODO: REFACTOR THIS FUNCTION
+// 5 buttons: PREV  NEXT  SOLVE  EDGES  SOLVER
+static void
 layoutButtons(const Layout *L,
                           Button *prevBtn,
                           Button *nextBtn,
                           Button *solveBtn,
-                          Button *parentBtn,
                           Button *edgesBtn,
                           Button *solverBtn)
 {
-    int buttonWidth = 128;
-    int buttonHeight = 40;
-    int gap = 14;
+    FooterMetrics M = computeFooterMetrics(L);
 
-    int totalRowW = buttonWidth * 3 + gap * 2;
-    int startX = L->footerPanel.x + (L->footerPanel.w - totalRowW) / 2;
-    int row1Y = L->footerPanel.y + 34;
-    int row2Y = row1Y + buttonHeight + 12;
-
-    prevBtn->rect   = (SDL_Rect){startX, row1Y, buttonWidth, buttonHeight};
-    nextBtn->rect   = (SDL_Rect){startX + buttonWidth + gap, row1Y, buttonWidth, buttonHeight};
-    solveBtn->rect  = (SDL_Rect){startX + (buttonWidth + gap) * 2, row1Y, buttonWidth, buttonHeight};
-
-    parentBtn->rect = (SDL_Rect){startX, row2Y, buttonWidth, buttonHeight};
-    edgesBtn->rect  = (SDL_Rect){startX + buttonWidth + gap, row2Y, buttonWidth, buttonHeight};
-    solverBtn->rect = (SDL_Rect){startX + (buttonWidth + gap) * 2, row2Y, buttonWidth, buttonHeight};
+    prevBtn->rect   = (SDL_Rect){M.btnStartX,                           M.btnRowY, M.btnW, M.btnH};
+    nextBtn->rect   = (SDL_Rect){M.btnStartX + 1 * (M.btnW + M.btnGap), M.btnRowY, M.btnW, M.btnH};
+    solveBtn->rect  = (SDL_Rect){M.btnStartX + 2 * (M.btnW + M.btnGap), M.btnRowY, M.btnW, M.btnH};
+    edgesBtn->rect  = (SDL_Rect){M.btnStartX + 3 * (M.btnW + M.btnGap), M.btnRowY, M.btnW, M.btnH};
+    solverBtn->rect = (SDL_Rect){M.btnStartX + 4 * (M.btnW + M.btnGap), M.btnRowY, M.btnW, M.btnH};
 }
 
 //info panel
-//for parent:
-static void updateParentInfo(AppState *app)
-{
-    clearInfoPanel(app);
-    app->infoType = INFO_PARENTS;
-
-    if (!app->parentSets || app->current >= app->parentSets->count) {
-        pushInfoLine(app, "NO PARENT DATA");
-        return;
-    }
-
-    AnswerSetModels *mod = &app->parentSets->mods[app->current];
-    if (mod->count <= 0) {
-        pushInfoLine(app, "NO PARENT ATOMS");
-        return;
-    }
-
-    for (int i = 0; i < mod->count; i++) {
-        parent p = mod->data.model[i];
-        char buf[128];
-        snprintf(buf, sizeof(buf), "PARENT %d %d %d %d", p.x + 1, p.y + 1, p.px, p.py);
-        pushInfoLine(app, buf);
-    }
-}
-
-//for edges 
+//for edges
 static void updateEdgesInfo(AppState *app)
 {
     clearInfoPanel(app);
@@ -780,14 +971,14 @@ static void updateEdgesInfo(AppState *app)
 
     uint8_t *maze = app->mazes[app->current];
     char *edgesStr = generateEdgesString(maze, app->rows, app->cols);
-    if (!edgesStr) 
+    if (!edgesStr)
     {
         pushInfoLine(app, "FAILED TO GENERATE EDGES");
         return;
     }
 
     char *line = strtok(edgesStr, "\n");
-    while (line) 
+    while (line)
     {
         pushInfoLine(app, line);
         line = strtok(NULL, "\n");
@@ -798,6 +989,7 @@ static void updateEdgesInfo(AppState *app)
     if (app->infoLineCount == 0)
         pushInfoLine(app, "NO EDGES");
 }
+
 //solver - path info
 //TODO - Parse output and draw nicely
 static void updateSolverInfo(AppState *app)
@@ -807,9 +999,9 @@ static void updateSolverInfo(AppState *app)
 
     uint8_t *maze = app->mazes[app->current];
     //run clingo
-    char *output = runSolverOnMaze(maze, app->rows, app->cols, 
+    char *output = runSolverOnMaze(maze, app->rows, app->cols,
                                             "maze_solver.lp");
-    if (!output) 
+    if (!output)
     {
         pushInfoLine(app, "FAILED TO RUN SOLVER");
         return;
@@ -831,13 +1023,19 @@ static void updateSolverInfo(AppState *app)
         pushInfoLine(app, "NO SOLVER OUTPUT");
 }
 
-//main function for the answer sets visualizer 
+//main function for the answer sets visualizer
 //alkso web dev math
-static void 
+static void
 drawInfoPanel(SDL_Renderer *ren, const AppState *app, const Layout *L)
 {
-    fillRect(ren, L->infoPanel, rgb(28, 31, 40));
-    strokeRect(ren, L->infoPanel, rgb(110, 118, 132));
+    uint32_t accent = rgb(120, 128, 144);
+    if (app->infoType == INFO_EDGES)
+        accent = rgb(136, 192, 208);
+    else if (app->infoType == INFO_SOLVER)
+        accent = rgb(163, 190, 140);
+
+    fillRect(ren, L->infoPanel, rgb(24, 28, 36));
+    strokeRect(ren, L->infoPanel, rgb(94, 102, 118));
 
     SDL_Rect titleBar = {
         L->infoPanel.x,
@@ -845,8 +1043,16 @@ drawInfoPanel(SDL_Renderer *ren, const AppState *app, const Layout *L)
         L->infoPanel.w,
         36
     };
-    fillRect(ren, titleBar, rgb(40, 46, 60));
-    strokeRect(ren, titleBar, rgb(110, 118, 132));
+    fillRect(ren, titleBar, rgb(34, 40, 54));
+    strokeRect(ren, titleBar, rgb(96, 104, 120));
+
+    SDL_Rect accentBar = {
+        titleBar.x + 1,
+        titleBar.y + 1,
+        titleBar.w - 2,
+        4
+    };
+    fillRect(ren, accentBar, accent);
 
     SDL_Rect body = {
         L->infoPanel.x + 8,
@@ -854,12 +1060,11 @@ drawInfoPanel(SDL_Renderer *ren, const AppState *app, const Layout *L)
         L->infoPanel.w - 16,
         L->infoPanel.h - 64
     };
-    fillRect(ren, body, rgb(16, 20, 28));
-    strokeRect(ren, body, rgb(66, 74, 90));
+    fillRect(ren, body, rgb(14, 18, 26));
+    strokeRect(ren, body, rgb(60, 68, 84));
 
     const char *title = "INFO";
-    if (app->infoType == INFO_PARENTS) title = "PARENTS";
-    else if (app->infoType == INFO_EDGES) title = "EDGES";
+    if (app->infoType == INFO_EDGES) title = "EDGES";
     else if (app->infoType == INFO_SOLVER) title = "SOLVER";
 
     drawTextSafe(ren, titleBar.x + 10, titleBar.y + 10, 2, title, rgb(245, 247, 250));
@@ -879,9 +1084,7 @@ drawInfoPanel(SDL_Renderer *ren, const AppState *app, const Layout *L)
     int lineStep = (textScale == 1) ? 12 : 18;
     int textX = body.x + 8;
     int textY = body.y + 8;
-    int usableH = body.h - 22;
-    int maxLines = usableH / lineStep;
-    if (maxLines < 1) maxLines = 1;
+    int maxLines = getInfoVisibleLines(app, L);
 
     int start = app->infoScrollOffset;
     int end = start + maxLines;
@@ -892,8 +1095,6 @@ drawInfoPanel(SDL_Renderer *ren, const AppState *app, const Layout *L)
         textColor = rgb(196, 220, 172);
     else if (app->infoType == INFO_EDGES)
         textColor = rgb(200, 224, 255);
-    else if (app->infoType == INFO_PARENTS)
-        textColor = rgb(236, 239, 244);
 
     SDL_RenderSetClipRect(ren, &body);
 
@@ -919,7 +1120,7 @@ drawInfoPanel(SDL_Renderer *ren, const AppState *app, const Layout *L)
 int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
            int mazeCount, int rows, int cols)
 {
-    if (!mazes || mazeCount <= 0 || rows <= 0 || cols <= 0) 
+    if (!mazes || mazeCount <= 0 || rows <= 0 || cols <= 0)
     {
         fprintf(stderr, "runApp: invalid input\n");
         return 1;
@@ -928,7 +1129,7 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
     AppState app;
     memset(&app, 0, sizeof(app));
 
-    //init 
+    //init
     app.mazes = mazes;
     app.paths = paths;
     app.parentSets = parentSets;
@@ -944,28 +1145,65 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
         return 1;
     }
 
-    //webdev math 
-    //todo: move to a seperate function 
-    int longest = rows > cols ? rows : cols;
-    app.cellSize = clampi(560 / (longest > 0 ? longest : 1), 14, 34);
-
-    int mazePixelW = cols * app.cellSize;
-    int mazePixelH = rows * app.cellSize;
-
-    int leftPaneW = mazePixelW + WINDOW_MARGIN * 2 + 40;
-    if (leftPaneW < LEFT_MIN_WIDTH) leftPaneW = LEFT_MIN_WIDTH;
-
-    app.winW = leftPaneW + CONTENT_GAP + PANEL_WIDTH;
-    app.winH = mazePixelH + FOOTER_HEIGHT + WINDOW_MARGIN * 2 + 30;
-
-
-    if (app.winH < 650) app.winH = 650;
-
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         free(app.showPath);
         return 1;
     }
+
+    //webdev math
+    //todo: move to a seperate function
+    SDL_Rect usable = {0, 0, 1366, 820};
+    if (SDL_GetDisplayUsableBounds(0, &usable) != 0)
+    {
+        usable.w = 1366;
+        usable.h = 820;
+    }
+
+    int longest = rows > cols ? rows : cols;
+    int footerH = FOOTER_MIN_HEIGHT;
+
+    int maxMazeW = usable.w
+                 - PANEL_WIDTH
+                 - CONTENT_GAP
+                 - WINDOW_MARGIN * 2
+                 - MAZE_CARD_PAD * 2
+                 - 40;
+
+    int maxMazeH = usable.h
+                 - WINDOW_MARGIN * 2
+                 - footerH
+                 - 12
+                 - MAZE_CARD_PAD * 2
+                 - 40;
+
+    if (maxMazeW < cols) maxMazeW = cols;
+    if (maxMazeH < rows) maxMazeH = rows;
+
+    int cellByBase = 560 / (longest > 0 ? longest : 1);
+    int cellByW = maxMazeW / cols;
+    int cellByH = maxMazeH / rows;
+    int fitCell = cellByW < cellByH ? cellByW : cellByH;
+
+    if (fitCell < cellByBase)
+        cellByBase = fitCell;
+
+    app.cellSize = clampi(cellByBase, MIN_CELL_SIZE, MAX_CELL_SIZE);
+
+    int mazePixelW = cols * app.cellSize + MAZE_CARD_PAD * 2;
+    int mazePixelH = rows * app.cellSize + MAZE_CARD_PAD * 2;
+
+    int leftPaneW = mazePixelW + WINDOW_MARGIN * 2 + 20;
+    if (leftPaneW < LEFT_MIN_WIDTH) leftPaneW = LEFT_MIN_WIDTH;
+
+    app.winW = leftPaneW + CONTENT_GAP + PANEL_WIDTH;
+    app.winH = WINDOW_MARGIN
+             + mazePixelH
+             + 12
+             + footerH
+             + WINDOW_MARGIN;
+
+    if (app.winH < 640) app.winH = 640;
 
     SDL_Window *window = SDL_CreateWindow(
         "Maze Viewer",
@@ -973,9 +1211,9 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
         SDL_WINDOWPOS_CENTERED,
         app.winW,
         app.winH,
-        SDL_WINDOW_SHOWN
+        SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI
     );
-    if (!window) 
+    if (!window)
     {
         fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
@@ -987,7 +1225,7 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
         window, -1,
         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
     );
-    if (!ren) 
+    if (!ren)
     {
         fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(window);
@@ -998,12 +1236,11 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
 
     updateTitle(window, &app);
 
-    //init buttons 
+    //init buttons
     //todo: a context struct for the buttons
     Button prevBtn   = {0};
     Button nextBtn   = {0};
     Button solveBtn  = {0};
-    Button parentBtn = {0};
     Button edgesBtn  = {0};
     Button solverBtn = {0};
 
@@ -1014,7 +1251,7 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
         Layout L = computeLayout(&app);
 
         layoutButtons(&L, &prevBtn, &nextBtn, &solveBtn,
-                      &parentBtn, &edgesBtn, &solverBtn);
+                      &edgesBtn, &solverBtn);
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -1025,12 +1262,10 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
                 int mx = e.motion.x;
                 int my = e.motion.y;
 
-
                 //check if buttons are hovered
                 prevBtn.hovered   = pointInRect(mx, my, prevBtn.rect);
                 nextBtn.hovered   = pointInRect(mx, my, nextBtn.rect);
                 solveBtn.hovered  = pointInRect(mx, my, solveBtn.rect);
-                parentBtn.hovered = pointInRect(mx, my, parentBtn.rect);
                 edgesBtn.hovered  = pointInRect(mx, my, edgesBtn.rect);
                 solverBtn.hovered = pointInRect(mx, my, solverBtn.rect);
             }
@@ -1039,17 +1274,18 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
                 int mx = e.button.x;
                 int my = e.button.y;
 
-                //check if buttons are pressed 
+                //check if buttons are pressed
                 prevBtn.pressed   = pointInRect(mx, my, prevBtn.rect);
                 nextBtn.pressed   = pointInRect(mx, my, nextBtn.rect);
                 solveBtn.pressed  = pointInRect(mx, my, solveBtn.rect);
-                parentBtn.pressed = pointInRect(mx, my, parentBtn.rect);
                 edgesBtn.pressed  = pointInRect(mx, my, edgesBtn.rect);
                 solverBtn.pressed = pointInRect(mx, my, solverBtn.rect);
+
+                if(solverBtn.pressed){printf("Solving\n");}
             }
             else if (e.type == SDL_MOUSEBUTTONUP &&
-                     e.button.button == SDL_BUTTON_LEFT) 
-            { //advancing the mazes 
+                     e.button.button == SDL_BUTTON_LEFT)
+            { //advancing the mazes
 
                 int mx = e.button.x;
                 int my = e.button.y;
@@ -1067,8 +1303,6 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
                     if (app.paths && app.current < app.paths->count)
                         app.showPath[app.current] = !app.showPath[app.current];
                 }
-                if (parentBtn.pressed && pointInRect(mx, my, parentBtn.rect))
-                    updateParentInfo(&app);
                 if (edgesBtn.pressed && pointInRect(mx, my, edgesBtn.rect))
                     updateEdgesInfo(&app);
                 if (solverBtn.pressed && pointInRect(mx, my, solverBtn.rect))
@@ -1077,33 +1311,32 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
                 if (mazeChanged)
                     clearInfoPanel(&app);
 
-                prevBtn.pressed = false;
-                nextBtn.pressed = false;
-                solveBtn.pressed = false;
-                parentBtn.pressed = false;
-                edgesBtn.pressed = false;
+                prevBtn.pressed   = false;
+                nextBtn.pressed   = false;
+                solveBtn.pressed  = false;
+                edgesBtn.pressed  = false;
                 solverBtn.pressed = false;
 
                 updateTitle(window, &app);
             }
-            else if (e.type == SDL_KEYDOWN) 
+            else if (e.type == SDL_KEYDOWN)
             {
                 SDL_Keycode key = e.key.keysym.sym;
                 bool mazeChanged = false;
 
-                if (key == SDLK_ESCAPE) 
+                if (key == SDLK_ESCAPE)
                     running = false;
-                else if (key == SDLK_LEFT || key == SDLK_a) 
+                else if (key == SDLK_LEFT || key == SDLK_a)
                 {
                     app.current = (app.current - 1 + app.mazeCount) % app.mazeCount;
                     mazeChanged = true;
                 }
-                else if (key == SDLK_RIGHT || key == SDLK_d) 
+                else if (key == SDLK_RIGHT || key == SDLK_d)
                 {
                     app.current = (app.current + 1) % app.mazeCount;
                     mazeChanged = true;
                 }
-                else if (key == SDLK_HOME) 
+                else if (key == SDLK_HOME)
                 {
                     app.current = 0;
                     mazeChanged = true;
@@ -1113,16 +1346,14 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
                     app.current = app.mazeCount - 1;
                     mazeChanged = true;
                 }
-                else if (key == SDLK_s || key == SDLK_RETURN) 
+                else if (key == SDLK_s || key == SDLK_RETURN)
                 {
                     if (app.paths && app.current < app.paths->count)
                         app.showPath[app.current] = !app.showPath[app.current];
                 }
-                else if (key == SDLK_1) 
-                    updateParentInfo(&app);
-                else if (key == SDLK_2) 
+                else if (key == SDLK_2)
                     updateEdgesInfo(&app);
-                else if (key == SDLK_3) 
+                else if (key == SDLK_3)
                     updateSolverInfo(&app);
 
                 if (mazeChanged)
@@ -1130,12 +1361,11 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
 
                 updateTitle(window, &app);
             }
-            else if (e.type == SDL_MOUSEWHEEL) 
-            { // mousewheel concerns the answer sets visualizer 
-                if (app.infoLines && app.infoLineCount > 0) 
+            else if (e.type == SDL_MOUSEWHEEL)
+            { // mousewheel concerns the answer sets visualizer
+                if (app.infoLines && app.infoLineCount > 0)
                 {
-                    int usableH = L.infoPanel.h - 70;
-                    int maxLines = usableH / 18;
+                    int maxLines = getInfoVisibleLines(&app, &L);
                     int maxOffset = app.infoLineCount - maxLines;
                     if (maxOffset < 0) maxOffset = 0;
 
@@ -1148,7 +1378,7 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
             }
         }
 
-        setColor(ren, rgb(13, 16, 24));
+        setColor(ren, rgb(10, 12, 18));
         SDL_RenderClear(ren);
 
         drawMazeCard(ren, L.mazeCard);
@@ -1158,7 +1388,6 @@ int runApp(uint8_t **mazes, PathSet *paths, AnswerSets *parentSets,
         drawButton(ren, &prevBtn,   "PREV");
         drawButton(ren, &nextBtn,   "NEXT");
         drawButton(ren, &solveBtn,  "SOLVE");
-        drawButton(ren, &parentBtn, "PARENTS");
         drawButton(ren, &edgesBtn,  "EDGES");
         drawButton(ren, &solverBtn, "SOLVER");
 
