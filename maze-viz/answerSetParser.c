@@ -250,7 +250,6 @@ answerSetsCtx* parseClingoEdgeOutput(const char *coreFile, const char *factsFile
 
     while (fgets(line, sizeof(line), fp))
     {
-        printf("%s\n",line);
         //new answer set
         if (strncmp(line, "Answer:", 7) == 0) 
         {
