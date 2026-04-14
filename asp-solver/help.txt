@@ -1,4 +1,4 @@
-To run standalone one must use maze gen to generate input.lp at a specified size.
+To run standalone one must use maze_gen.py to generate input.lp at a specified size.
 clingo maze.lp input.lp will generate list of edges
 maze.solver solver takes in list of edges as facts to generate the path through the maze as an output.
 bash script provided will give list of commands for generating purely that list.
