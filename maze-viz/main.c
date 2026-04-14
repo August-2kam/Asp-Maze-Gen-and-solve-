@@ -198,6 +198,7 @@ int main(int argc, char *argv[])
     int gen = 0;
 
     //parse the command line arguments 
+    /*This was meant for toggling between different maze generation encodings
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--g") == 0 && i+1 < argc)
         {
@@ -213,7 +214,7 @@ int main(int argc, char *argv[])
             i++;
         }     
     }
-
+*/
     int dim;
     printf("Enter the length of your maze (default=5): ");
     scanf("%d", &dim);
