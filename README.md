@@ -207,12 +207,5 @@ This project is useful for demonstrating:
 ## Author
 
 **Augustine Mochoeneng**
-
-## Submission note
-
-For marker convenience, place this `README.md` either:
-
-- inside the `maze-viz/` folder, or
-- at repository root while clearly indicating that all source files are inside `maze-viz/`.
-
-If placed at repository root, all commands in this README should still be run from inside the `maze-viz/` directory.
+**Antony Baker**
+**Gideon Weiss**
